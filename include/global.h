@@ -27,5 +27,7 @@ extern String CORE_IOT_PORT;
 extern boolean isWifiConnected;
 // Chi true khi Wi-Fi AP/STA da khoi tao va co IP hop le.
 extern volatile bool isNetworkReady;
+// Chan ket noi Wi-Fi moi dang duoc xu ly boi trang cai dat.
+extern volatile bool wifiConfigInProgress;
 extern SemaphoreHandle_t xBinarySemaphoreInternet;
 #endif

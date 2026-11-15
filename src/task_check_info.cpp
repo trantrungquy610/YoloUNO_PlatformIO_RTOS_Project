@@ -33,6 +33,28 @@ void Delete_info_File()
   ESP.restart();
 }
 
+bool Save_info_File_NoRestart(String wifi_ssid, String wifi_pass, String token, String server, String port)
+{
+  DynamicJsonDocument doc(4096);
+  doc["WIFI_SSID"] = wifi_ssid;
+  doc["WIFI_PASS"] = wifi_pass;
+  doc["CORE_IOT_TOKEN"] = token;
+  doc["CORE_IOT_SERVER"] = server;
+  doc["CORE_IOT_PORT"] = port;
+
+  File configFile = LittleFS.open("/info.dat", "w");
+  if (!configFile)
+    return false;
+  const size_t written = serializeJson(doc, configFile);
+  configFile.close();
+  if (written == 0)
+    return false;
+
+  WIFI_SSID = wifi_ssid;
+  WIFI_PASS = wifi_pass;
+  return true;
+}
+
 void Save_info_File(String wifi_ssid, String wifi_pass, String CORE_IOT_TOKEN, String CORE_IOT_SERVER, String CORE_IOT_PORT)
 {
   Serial.println("Saving Wi-Fi configuration...");
