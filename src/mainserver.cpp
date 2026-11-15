@@ -10,6 +10,17 @@ bool led2_state = false;
 
 static WebServer mainServer(80);
 
+// Trang thai ket noi Wi-Fi moi, duoc cap nhat trong main_server_task.
+static String wifiSetupState = "idle"; // idle, connecting, connected, failed
+static String wifiSetupMessage = "";
+static String wifiSetupIP = "";
+static String pendingSsid = "";
+static String pendingPassword = "";
+static uint32_t wifiConnectStartedMs = 0;
+static uint32_t apShutdownAtMs = 0;
+static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
+static const uint32_t AP_GRACE_PERIOD_MS = 10000;
+
 String mainPage()
 {
   float temperature = glob_temperature;
@@ -262,16 +273,43 @@ String settingsPage()
     </div>
 
     <script>
-      document.getElementById('wifiForm').onsubmit = function(e){
+      const msgBox = document.getElementById('msg');
+      let pollTimer = null;
+      document.getElementById('wifiForm').onsubmit = async function(e){
         e.preventDefault();
-        let ssid = document.getElementById('ssid').value;
-        let pass = document.getElementById('pass').value;
-        fetch('/connect?ssid='+encodeURIComponent(ssid)+'&pass='+encodeURIComponent(pass))
-          .then(r=>r.text())
-          .then(msg=>{
-            document.getElementById('msg').innerText = msg;
-          });
+        const ssid = document.getElementById('ssid').value.trim();
+        const pass = document.getElementById('pass').value;
+        if (!ssid) { msgBox.innerText = 'Vui lòng nhập tên Wi-Fi.'; return; }
+        msgBox.innerText = 'Đang bắt đầu kết nối...';
+        try {
+          const r = await fetch('/connect?ssid='+encodeURIComponent(ssid)+'&pass='+encodeURIComponent(pass));
+          const result = await r.json();
+          if (!r.ok) { msgBox.innerText = result.message || 'Không thể bắt đầu kết nối.'; return; }
+          msgBox.innerText = 'Đang kết nối Wi-Fi, vui lòng chờ...';
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = setInterval(checkWifiStatus, 1000);
+          checkWifiStatus();
+        } catch(err) { msgBox.innerText = 'Không thể liên lạc với ESP32.'; }
       };
+
+      async function checkWifiStatus(){
+        try {
+          const r = await fetch('/connect-status', {cache:'no-store'});
+          const s = await r.json();
+          if (s.state === 'connecting') {
+            msgBox.innerText = 'Đang kết nối tới Wi-Fi...';
+          } else if (s.state === 'connected') {
+            clearInterval(pollTimer);
+            msgBox.innerText = '✅ Đã kết nối thành công! IP mới: ' + s.ip +
+              '. Hãy kết nối điện thoại vào cùng mạng Wi-Fi và truy cập http://' + s.ip;
+          } else if (s.state === 'failed') {
+            clearInterval(pollTimer);
+            msgBox.innerText = '❌ Kết nối thất bại: ' + s.message + '. ESP32 vẫn phát Wi-Fi ESP32 LOCAL để bạn thử lại.';
+          }
+        } catch(err) {
+          // AP co the vua tat sau khi da hien thi ket qua thanh cong.
+        }
+      }
     </script>
   </body>
   </html>
@@ -313,18 +351,46 @@ void handleConnect()
 {
   const String newSsid = mainServer.arg("ssid");
   const String newPassword = mainServer.arg("pass");
-
   if (newSsid.isEmpty())
   {
-    mainServer.send(400, "text/plain", "SSID cannot be empty.");
+    mainServer.send(400, "application/json", "{\"state\":\"failed\",\"message\":\"SSID khong duoc de trong\"}");
+    return;
+  }
+  if (wifiConfigInProgress)
+  {
+    mainServer.send(409, "application/json", "{\"state\":\"connecting\",\"message\":\"Dang co mot yeu cau ket noi\"}");
     return;
   }
 
-  // Phan hoi HTTP truoc, sau do luu cau hinh va khoi dong lai.
-  // Sau reboot, task_wifi.cpp la noi duy nhat chuyen Wi-Fi sang STA.
-  mainServer.send(200, "text/plain", "Wi-Fi settings saved. Device is restarting...");
-  delay(500);
-  Save_info_File(newSsid, newPassword, CORE_IOT_TOKEN, CORE_IOT_SERVER, CORE_IOT_PORT);
+  // Giu AP de dien thoai tiep tuc truy cap trang cai dat trong luc STA ket noi.
+  wifiSetupState = "connecting";
+  wifiSetupMessage = "";
+  wifiSetupIP = "";
+  pendingSsid = newSsid;
+  pendingPassword = newPassword;
+  wifiConfigInProgress = true;
+  apShutdownAtMs = 0;
+  isNetworkReady = true;
+
+  if (!WiFi.mode(WIFI_AP_STA))
+  {
+    wifiConfigInProgress = false;
+    wifiSetupState = "failed";
+    wifiSetupMessage = "Khong the chuyen sang che do AP+STA";
+    mainServer.send(500, "application/json", "{\"state\":\"failed\",\"message\":\"Khong the chuyen sang AP+STA\"}");
+    return;
+  }
+
+  WiFi.disconnect(false, false);
+  WiFi.begin(pendingSsid.c_str(), pendingPassword.c_str());
+  wifiConnectStartedMs = millis();
+  mainServer.send(202, "application/json", "{\"state\":\"connecting\",\"message\":\"Dang ket noi\"}");
+}
+
+void handleConnectStatus()
+{
+  String json = "{\"state\":\"" + wifiSetupState + "\",\"ip\":\"" + wifiSetupIP + "\",\"message\":\"" + wifiSetupMessage + "\"}";
+  mainServer.send(200, "application/json", json);
 }
 
 // ========== MainServer ==========
@@ -335,6 +401,7 @@ void setupServer()
   mainServer.on("/sensors", HTTP_GET, handleSensors);
   mainServer.on("/settings", HTTP_GET, handleSettings);
   mainServer.on("/connect", HTTP_GET, handleConnect);
+  mainServer.on("/connect-status", HTTP_GET, handleConnectStatus);
   mainServer.begin();
   Serial.println("MainServer started on port 80");
 }
@@ -355,6 +422,56 @@ void main_server_task(void *pvParameters)
 
   for (;;)
   {
+    if (wifiSetupState == "connecting")
+    {
+      if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0))
+      {
+        wifiSetupIP = WiFi.localIP().toString();
+        if (Save_info_File_NoRestart(pendingSsid, pendingPassword, CORE_IOT_TOKEN, CORE_IOT_SERVER, CORE_IOT_PORT))
+        {
+          WIFI_SSID = pendingSsid;
+          WIFI_PASS = pendingPassword;
+          isWifiConnected = true;
+          wifiSetupState = "connected";
+          wifiSetupMessage = "Thanh cong";
+          apShutdownAtMs = millis() + AP_GRACE_PERIOD_MS;
+          if (xBinarySemaphoreInternet != nullptr)
+            xSemaphoreGive(xBinarySemaphoreInternet);
+          Serial.print("Wi-Fi connected. New STA IP: ");
+          Serial.println(wifiSetupIP);
+        }
+        else
+        {
+          wifiSetupState = "failed";
+          wifiSetupMessage = "Khong the luu cau hinh vao LittleFS";
+          WiFi.disconnect(false, false);
+          WiFi.mode(WIFI_AP);
+          wifiConfigInProgress = false;
+        }
+      }
+      else if (millis() - wifiConnectStartedMs >= WIFI_CONNECT_TIMEOUT_MS)
+      {
+        wifiSetupState = "failed";
+        wifiSetupMessage = "Sai mat khau, khong tim thay mang hoac het thoi gian cho";
+        WiFi.disconnect(false, false);
+        WiFi.mode(WIFI_AP);
+        isWifiConnected = false;
+        isNetworkReady = true;
+        wifiConfigInProgress = false;
+        Serial.println("Wi-Fi configuration failed; AP remains available.");
+      }
+    }
+    else if (wifiSetupState == "connected" && apShutdownAtMs != 0 && (int32_t)(millis() - apShutdownAtMs) >= 0)
+    {
+      // Da co thoi gian gui IP ve dien thoai; tat AP va ket thuc o che do STA.
+      WiFi.softAPdisconnect(true);
+      WiFi.mode(WIFI_STA);
+      isNetworkReady = (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0));
+      wifiConfigInProgress = false;
+      apShutdownAtMs = 0;
+      Serial.println("AP disabled. Device remains in WIFI_STA mode.");
+    }
+
     mainServer.handleClient();
     vTaskDelay(pdMS_TO_TICKS(5));
   }

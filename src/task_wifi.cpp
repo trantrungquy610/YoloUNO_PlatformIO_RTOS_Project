@@ -98,6 +98,9 @@ void startSTA()
 
 bool Wifi_reconnect()
 {
+    // Trang cai dat dang tu quan ly qua trinh ket noi AP+STA.
+    if (wifiConfigInProgress || (WiFi.getMode() & WIFI_AP))
+        return false;
     if (WiFi.status() == WL_CONNECTED)
     {
         isWifiConnected = true;

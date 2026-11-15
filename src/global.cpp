@@ -19,4 +19,5 @@ String wifi_ssid = "abcde";
 String wifi_password = "123456789";
 boolean isWifiConnected = false;
 volatile bool isNetworkReady = false;
+volatile bool wifiConfigInProgress = false;
 SemaphoreHandle_t xBinarySemaphoreInternet = nullptr;
