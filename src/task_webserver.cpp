@@ -53,9 +53,12 @@ void connnectWSV()
                    { request->send(LittleFS, "/script.js", "application/javascript"); });
     asyncServer.on("/styles.css", HTTP_GET, [](AsyncWebServerRequest *request)
                    { request->send(LittleFS, "/styles.css", "text/css"); });
+    asyncServer.on("/health", HTTP_GET, [](AsyncWebServerRequest *request)
+                   { request->send(200, "text/plain", "AsyncWebServer is working!"); });
+    ElegantOTA.begin(&asyncServer);
     asyncServer.begin();
     Serial.println("AsyncWebServer started on port 8080");
-    ElegantOTA.begin(&asyncServer);
+
     webserver_isrunning = true;
 }
 
