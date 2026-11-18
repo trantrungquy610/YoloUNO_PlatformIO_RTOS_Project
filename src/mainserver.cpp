@@ -301,10 +301,10 @@ String settingsPage()
           } else if (s.state === 'connected') {
             clearInterval(pollTimer);
             msgBox.innerText = '✅ Đã kết nối thành công! IP mới: ' + s.ip +
-              '. Hãy kết nối điện thoại vào cùng mạng Wi-Fi và truy cập http://' + s.ip;
+              '. Hãy kết nối điện thoại vào cùng mạng Wi-Fi và truy cập http://' + s.ip + ':8080';
           } else if (s.state === 'failed') {
             clearInterval(pollTimer);
-            msgBox.innerText = '❌ Kết nối thất bại: ' + s.message + '. ESP32 vẫn phát Wi-Fi ESP32 LOCAL để bạn thử lại.';
+            msgBox.innerText = '❌ Kết nối thất bại: ' + s.message + '. ESP32 vẫn phát Wi-Fi ESP32 TEAM 007 để bạn thử lại.';
           }
         } catch(err) {
           // AP co the vua tat sau khi da hien thi ket qua thanh cong.
