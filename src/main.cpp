@@ -5,6 +5,8 @@
 #include "temp_humi_monitor.h"
 #include "mainserver.h"
 #include "task_mqtt_gateway.h"
+#include "task_fan.h"
+#include "task_rgb.h"
 
 // include task
 #include "task_check_info.h"
@@ -30,6 +32,8 @@ void setup()
   xTaskCreate(main_server_task, "Task Main Server", 8192, NULL, 2, NULL);
   xTaskCreate(Task_Toogle_BOOT, "Task_Toogle_BOOT", 4096, NULL, 2, NULL);
   xTaskCreate(mqtt_gateway_task, "MQTT Gateway Task", 6144, NULL, 2, NULL);
+  xTaskCreate(task_fan_control, "Task Fan", 2048, NULL, 1, NULL);
+  xTaskCreate(task_rgb, "RGB LED", 2048, NULL, 1, NULL);
 }
 
 void loop()

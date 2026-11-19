@@ -12,7 +12,7 @@
 // ========================================
 
 // Thay bằng IPv4 của máy chạy Docker Gateway
-const char *MQTT_SERVER = "192.168.101.124";
+const char *MQTT_SERVER = "192.168.26.124";
 
 constexpr uint16_t MQTT_PORT = 1883;
 
