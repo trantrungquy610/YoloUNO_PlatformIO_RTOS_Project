@@ -18,7 +18,7 @@ alignas(16) static uint8_t tensor_arena[TENSOR_ARENA_SIZE];
 
 static const tflite::Model *gesture_model = nullptr;
 
-static tflite::MicroMutableOpResolver<6> resolver;
+static tflite::MicroMutableOpResolver<9> resolver;
 
 static tflite::MicroInterpreter *interpreter = nullptr;
 
@@ -66,6 +66,8 @@ bool gesture_ai_init()
         gesture_model->version());
 
     // Register only operators used by this model
+    // Register all operators used by the model
+
     if (resolver.AddQuantize() != kTfLiteOk)
         return false;
 
@@ -75,7 +77,16 @@ bool gesture_ai_init()
     if (resolver.AddMaxPool2D() != kTfLiteOk)
         return false;
 
-    if (resolver.AddMean() != kTfLiteOk)
+    if (resolver.AddShape() != kTfLiteOk)
+        return false;
+
+    if (resolver.AddStridedSlice() != kTfLiteOk)
+        return false;
+
+    if (resolver.AddPack() != kTfLiteOk)
+        return false;
+
+    if (resolver.AddReshape() != kTfLiteOk)
         return false;
 
     if (resolver.AddFullyConnected() != kTfLiteOk)
@@ -84,7 +95,7 @@ bool gesture_ai_init()
     if (resolver.AddSoftmax() != kTfLiteOk)
         return false;
 
-    Serial.println("[TFLM] Operators registered");
+    Serial.println("[TFLM] All 9 model operators registered");
 
     // Static interpreter: create only once
     static tflite::MicroInterpreter static_interpreter(
@@ -169,7 +180,11 @@ bool gesture_ai_predict(
         return false;
 
     TfLiteTensor *input = interpreter->input(0);
-
+    // Copy grayscale image from webcam into TFLM input tensor
+    memcpy(
+        input->data.uint8,
+        pixels,
+        GESTURE_INPUT_BYTES);
     // Copy grayscale UINT8 image directly.
     // Do NOT divide by 255.
     // DEBUG: Check input image statistics

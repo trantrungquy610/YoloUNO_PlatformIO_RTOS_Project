@@ -3,6 +3,7 @@
 
 #include "task_gesture.h"
 #include "gesture_inference.h"
+#include "task_rgb.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -73,6 +74,47 @@ void gesture_ai_task(void *pvParameters)
                     "[GESTURE] Result: %s | confidence: %.3f\n",
                     prediction.label,
                     prediction.confidence);
+
+                // Confidence threshold ban đầu
+                const float CONFIDENCE_THRESHOLD = 0.35f;
+
+                RgbGestureCommand command = RGB_CMD_NO_HAND;
+
+                bool validGesture =
+                    prediction.confidence >= CONFIDENCE_THRESHOLD;
+
+                if (validGesture)
+                {
+                    switch (prediction.class_index)
+                    {
+                    case 0:
+                        command = RGB_CMD_FIST;
+                        break;
+
+                    case 1:
+                        command = RGB_CMD_NO_HAND;
+                        break;
+
+                    case 2:
+                        command = RGB_CMD_OPEN_PALM;
+                        break;
+
+                    case 3:
+                        command = RGB_CMD_THUMBS_UP;
+                        break;
+
+                    case 4:
+                        command = RGB_CMD_VICTORY;
+                        break;
+
+                    default:
+                        command = RGB_CMD_NO_HAND;
+                        break;
+                    }
+                }
+
+                // Gửi lệnh cho RGB task
+                rgb_submit_gesture(command);
             }
             else
             {

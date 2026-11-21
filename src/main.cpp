@@ -29,6 +29,16 @@ void setup()
   {
     Serial.println("[ERROR] Cannot create Internet semaphore!");
   }
+  ////
+  if (task_rgb_init())
+  {
+    Serial.println("[RGB] Queue initialized");
+  }
+  else
+  {
+    Serial.println("[RGB] Queue initialization FAILED");
+  }
+  xTaskCreate(task_rgb, "RGB LED", 2048, NULL, 1, NULL);
 
   // 2. Initialize Gesture BEFORE other tasks
   Serial.println("[GESTURE] Step 1: Initializing Queue...");
@@ -71,7 +81,6 @@ void setup()
   xTaskCreate(Task_Toogle_BOOT, "Task_Toogle_BOOT", 4096, NULL, 2, NULL);
   xTaskCreate(mqtt_gateway_task, "MQTT Gateway Task", 6144, NULL, 2, NULL);
   xTaskCreate(task_fan_control, "Task Fan", 2048, NULL, 1, NULL);
-  xTaskCreate(task_rgb, "RGB LED", 2048, NULL, 1, NULL);
 
   Serial.println("========== SETUP END ==========");
 }
