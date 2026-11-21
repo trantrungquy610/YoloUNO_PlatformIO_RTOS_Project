@@ -1,61 +1,99 @@
 #include <task_handler.h>
 
+// GPIO pins used by existing tasks (fan, RGB, RS485, I2C, status LEDs) and
+// ESP32-S3 USB/boot pins must not be controlled by an arbitrary web request.
+// WEB_RELAY_GPIO is intentionally -1 until the team's hardware owner selects
+// a verified, unused output pin and wires a low-voltage relay to it.
+int webRelayGpio()
+{
+    const int gpio = WEB_RELAY_GPIO;
+    if (gpio < 1 || gpio > 48 || gpio == 6 || gpio == 8 ||
+        gpio == 9 || gpio == 10 || gpio == 11 || gpio == 12 ||
+        gpio == 19 || gpio == 20 || gpio == 45 || gpio == 46 ||
+        gpio == 48)
+        return -1;
+    return gpio;
+}
+
+bool webRelayState()
+{
+    int gpio = webRelayGpio();
+    return gpio >= 0 && digitalRead(gpio) == HIGH;
+}
+
 void handleWebSocketMessage(String message)
 {
-    Serial.println(message);
-    StaticJsonDocument<256> doc;
-
-    DeserializationError error = deserializeJson(doc, message);
-    if (error)
+    StaticJsonDocument<1024> doc;
+    if (deserializeJson(doc, message))
     {
-        Serial.println("❌ Lỗi parse JSON!");
+        ws.textAll("{\"page\":\"error\",\"message\":\"JSON khong hop le\"}");
         return;
     }
-    JsonObject value = doc["value"];
-    if (doc["page"] == "device")
+    String page = doc["page"].as<String>();
+    unsigned long requestId = doc["request_id"] | 0UL;
+
+    if (page == "device")
     {
-        if (!value.containsKey("gpio") || !value.containsKey("status"))
+        StaticJsonDocument<192> response;
+        response["page"] = "device_result";
+        response["request_id"] = requestId;
+        const int gpio = doc["value"]["gpio"] | -1;
+        const String status = doc["value"]["status"].as<String>();
+        if (webRelayGpio() < 0 || gpio != webRelayGpio())
         {
-            Serial.println("⚠️ JSON thiếu thông tin gpio hoặc status");
-            return;
+            response["status"] = "error";
+            response["message"] = "Relay GPIO chua duoc cau hinh hoac khong duoc phep";
         }
-
-        int gpio = value["gpio"];
-        String status = value["status"].as<String>();
-
-        Serial.printf("⚙️ Điều khiển GPIO %d → %s\n", gpio, status.c_str());
-        pinMode(gpio, OUTPUT);
-        if (status.equalsIgnoreCase("ON"))
+        else if (status != "ON" && status != "OFF")
         {
-            digitalWrite(gpio, HIGH);
-            Serial.printf("🔆 GPIO %d ON\n", gpio);
+            response["status"] = "error";
+            response["message"] = "Status phai la ON hoac OFF";
         }
-        else if (status.equalsIgnoreCase("OFF"))
+        else
         {
-            digitalWrite(gpio, LOW);
-            Serial.printf("💤 GPIO %d OFF\n", gpio);
+            pinMode(gpio, OUTPUT);
+            digitalWrite(gpio, status == "ON" ? HIGH : LOW);
+            response["status"] = "ok";
+            response["gpio"] = gpio;
+            response["state"] = webRelayState() ? "ON" : "OFF";
+            // GPIO write acknowledged; this does NOT prove the physical load switched.
         }
+        String output;
+        serializeJson(response, output);
+        ws.textAll(output);
     }
-    else if (doc["page"] == "setting")
+    else if (page == "setting")
     {
-        String WIFI_SSID = doc["value"]["ssid"].as<String>();
-        String WIFI_PASS = doc["value"]["password"].as<String>();
-        String CORE_IOT_TOKEN = doc["value"]["token"].as<String>();
-        String CORE_IOT_SERVER = doc["value"]["server"].as<String>();
-        String CORE_IOT_PORT = doc["value"]["port"].as<String>();
-
-        Serial.println("📥 Nhận cấu hình từ WebSocket:");
-        Serial.println("SSID: " + WIFI_SSID);
-        Serial.println("PASS: " + WIFI_PASS);
-        Serial.println("TOKEN: " + CORE_IOT_TOKEN);
-        Serial.println("SERVER: " + CORE_IOT_SERVER);
-        Serial.println("PORT: " + CORE_IOT_PORT);
-
-        // 👉 Gọi hàm lưu cấu hình
-        Save_info_File(WIFI_SSID, WIFI_PASS, CORE_IOT_TOKEN, CORE_IOT_SERVER, CORE_IOT_PORT);
-
-        // Phản hồi lại client (tùy chọn)
-        String msg = "{\"status\":\"ok\",\"page\":\"setting_saved\"}";
-        ws.textAll(msg);
+        StaticJsonDocument<220> response;
+        response["page"] = "setting_saved";
+        response["request_id"] = requestId;
+        const String ssid = doc["value"]["ssid"].as<String>();
+        const String password = doc["value"]["password"].as<String>();
+        const String token = doc["value"]["token"].as<String>();
+        const String server = doc["value"]["server"].as<String>();
+        const String port = doc["value"]["port"].as<String>();
+        const int parsedPort = port.toInt();
+        if (ssid.isEmpty() || ssid.length() > 32 || password.length() > 63 ||
+            token.isEmpty() || server.isEmpty() || parsedPort <= 0 || parsedPort > 65535)
+        {
+            response["status"] = "error";
+            response["message"] = "SSID, token, server hoac port khong hop le";
+        }
+        else if (!Save_info_File_NoRestart(ssid, password, token, server, port))
+        {
+            response["status"] = "error";
+            response["message"] = "Luu LittleFS that bai";
+        }
+        else
+        {
+            response["status"] = "ok";
+            response["message"] = "Da luu vao LittleFS; thiet bi se khoi dong lai";
+            // Delayed restart gives the browser time to receive the acknowledgement.
+            // Reconnecting Wi-Fi/Core IoT afterwards is not guaranteed by this ACK.
+            Webserver_scheduleRestart(2500);
+        }
+        String output;
+        serializeJson(response, output);
+        ws.textAll(output);
     }
 }
