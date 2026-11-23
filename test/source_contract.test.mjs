@@ -1,0 +1,26 @@
+/** Static source contracts: catches accidental regression, not an ESP32 compilation test. */
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const read = file => readFileSync(new URL('../'+file, import.meta.url),'utf8');
+const web = read('src/task_webserver.cpp');
+const handler = read('src/task_handler.cpp');
+const wifi = read('src/mainserver.cpp');
+const ui = read('data/script.js');
+const config = read('src/task_check_info.cpp');
+const header = read('include/task_handler.h');
+assert.match(web,/AsyncWebServer asyncServer\(8080\)/);
+for (const route of ['health','api/sensors','api/info']) assert(web.includes('"/'+route+'"'));
+assert.match(web,/AsyncWebSocket ws\("\/ws"\)/);
+assert.match(web,/client->text/);
+assert.match(web,/info->len != len/);
+assert.match(web,/WEB_ENABLE_OTA/);
+assert.match(handler,/replyJson\(client, response\)/);
+assert.doesNotMatch(handler,/ws\.textAll\(/);
+assert.match(header,/#define WEB_RELAY_GPIO -1/);
+assert.match(handler,/gpio != webRelayGpio\(\)/);
+assert.match(config,/Save_info_File_NoRestart/);
+assert.match(config,/persisted\["WIFI_SSID"\]/);
+assert.match(wifi,/mainServer\.on\("\/connect", HTTP_POST, handleConnect\)/);
+assert.doesNotMatch(wifi,/fetch\('\/connect\?ssid=/);
+assert.doesNotMatch(ui,/Math\.random/);
+console.log('PASS: WebServer source contracts (static, NOT a firmware compile)');

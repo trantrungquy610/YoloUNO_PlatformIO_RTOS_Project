@@ -1,182 +1,265 @@
-// ==================== WEBSOCKET ====================
-var gateway = `ws://${window.location.hostname}:8080/ws`;
-var websocket;
+/* YOLO UNO Web UI - port 8080. No third-party scripts required (works in AP mode).
+ * Sensor data: GET /api/sensors. Device info: GET /api/info.
+ * Commands: WebSocket /ws, with request_id based acknowledgement.
+ */
+'use strict';
 
-window.addEventListener('load', onLoad);
+const el = id => document.getElementById(id);
+const WS_RETRY_MS = 2500;
+const POLL_SENSOR_MS = 3000;
+const POLL_INFO_MS = 5000;
+let socket = null;
+let reconnectTimer = null;
+let requestCounter = 0;
+const pending = new Map();
+let info = null;
+let relayBusy = false;
+let relayOn = false;
 
-function onLoad(event) {
-    initWebSocket();
+function setText(id, value) {
+  const node = el(id);
+  if (node) node.textContent = String(value);
 }
-
-function onOpen(event) {
-    console.log('Connection opened');
+function notify(message, kind = 'info') {
+  const node = el('feedback');
+  if (!node) return;
+  node.textContent = message;
+  node.dataset.kind = kind;
 }
-
-function onClose(event) {
-    console.log('Connection closed');
-    setTimeout(initWebSocket, 2000);
+function socketReady() {
+  return socket !== null && socket.readyState === WebSocket.OPEN;
 }
-
-function initWebSocket() {
-    console.log('Trying to open a WebSocket connection…');
-    websocket = new WebSocket(gateway);
-    websocket.onopen = onOpen;
-    websocket.onclose = onClose;
-    websocket.onmessage = onMessage;
+function setSocketStatus(connected) {
+  const node = el('connectionStatus');
+  if (node) {
+    node.textContent = connected ? 'WebSocket: Đã kết nối' : 'WebSocket: Mất kết nối';
+    node.dataset.status = connected ? 'online' : 'offline';
+  }
+  renderRelay();
 }
-
-function Send_Data(data) {
-    if (websocket && websocket.readyState === WebSocket.OPEN) {
-        websocket.send(data);
-        console.log("📤 Gửi:", data);
-    } else {
-        console.warn("⚠️ WebSocket chưa sẵn sàng!");
-        alert("⚠️ WebSocket chưa kết nối!");
+function connectSocket() {
+  if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+  const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  if (!window.location.host) {
+    setSocketStatus(false);
+    notify('Hãy mở giao diện qua địa chỉ IP của YOLO UNO (cổng 8080), không mở file HTML trực tiếp.', 'error');
+    return;
+  }
+  try {
+    socket = new WebSocket(`${scheme}//${window.location.host}/ws`);
+  } catch (_error) {
+    setSocketStatus(false);
+    reconnectTimer = setTimeout(connectSocket, WS_RETRY_MS);
+    return;
+  }
+  const currentSocket = socket;
+  currentSocket.addEventListener('open', () => {
+    if (socket !== currentSocket) return;
+    setSocketStatus(true);
+    notify('Đã kết nối WebSocket với thiết bị.', 'ok');
+  });
+  currentSocket.addEventListener('message', event => {
+    let data;
+    try { data = JSON.parse(event.data); } catch (_error) { return; }
+    const requestId = Number(data.request_id);
+    if ((data.page === 'device_result' || data.page === 'setting_saved') && pending.has(requestId)) {
+      const op = pending.get(requestId);
+      pending.delete(requestId);
+      clearTimeout(op.timer);
+      if (op.page !== data.page) return;
+      if (data.status === 'ok') op.resolve(data);
+      else op.reject(new Error(data.message || 'Thiết bị từ chối yêu cầu.'));
+    } else if (data.page === 'error') {
+      notify(data.message || 'WebSocket báo lỗi.', 'error');
     }
+  });
+  currentSocket.addEventListener('close', () => {
+    if (socket !== currentSocket) return;
+    setSocketStatus(false);
+    for (const [, op] of pending) {
+      clearTimeout(op.timer);
+      op.reject(new Error('Mất kết nối trước khi nhận phản hồi của thiết bị.'));
+    }
+    pending.clear();
+    notify('WebSocket bị ngắt. Giao diện sẽ tự kết nối lại.', 'error');
+    reconnectTimer = setTimeout(connectSocket, WS_RETRY_MS);
+  });
+  currentSocket.addEventListener('error', () => { setSocketStatus(false); });
 }
-
-function onMessage(event) {
-    console.log("📩 Nhận:", event.data);
+function requestDevice(page, value, expectedPage) {
+  if (!socketReady()) return Promise.reject(new Error('WebSocket chưa kết nối.'));
+  requestCounter += 1;
+  const requestId = requestCounter;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pending.delete(requestId);
+      reject(new Error('Không có phản hồi từ thiết bị sau 8 giây.'));
+    }, 8000);
+    pending.set(requestId, { resolve, reject, timer, page: expectedPage });
     try {
-        var data = JSON.parse(event.data);
-        // Có thể thêm xử lý riêng nếu cần (ví dụ cập nhật trạng thái)
-    } catch (e) {
-        console.warn("Không phải JSON hợp lệ:", event.data);
+      socket.send(JSON.stringify({ page, request_id: requestId, value }));
+    } catch (_error) {
+      clearTimeout(timer);
+      pending.delete(requestId);
+      reject(new Error('Không gửi được lệnh WebSocket.'));
     }
+  });
 }
-
-
-// ==================== UI NAVIGATION ====================
-let relayList = [];
-let deleteTarget = null;
 
 function showSection(id, event) {
-    document.querySelectorAll('.section').forEach(sec => sec.style.display = 'none');
-    document.getElementById(id).style.display = id === 'settings' ? 'flex' : 'block';
-    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-    event.currentTarget.classList.add('active');
+  document.querySelectorAll('.section').forEach(section => {
+    section.style.display = section.id === id ? (id === 'settings' ? 'flex' : 'block') : 'none';
+  });
+  document.querySelectorAll('.nav-item').forEach(node => node.classList.remove('active'));
+  if (event && event.currentTarget) event.currentTarget.classList.add('active');
 }
 
-
-// ==================== HOME GAUGES ====================
-window.onload = function () {
-    const gaugeTemp = new JustGage({
-        id: "gauge_temp",
-        value: 26,
-        min: -10,
-        max: 50,
-        donut: true,
-        pointer: false,
-        gaugeWidthScale: 0.25,
-        gaugeColor: "transparent",
-        levelColorsGradient: true,
-        levelColors: ["#00BCD4", "#4CAF50", "#FFC107", "#F44336"]
-    });
-
-    const gaugeHumi = new JustGage({
-        id: "gauge_humi",
-        value: 60,
-        min: 0,
-        max: 100,
-        donut: true,
-        pointer: false,
-        gaugeWidthScale: 0.25,
-        gaugeColor: "transparent",
-        levelColorsGradient: true,
-        levelColors: ["#42A5F5", "#00BCD4", "#0288D1"]
-    });
-
-    setInterval(() => {
-        gaugeTemp.refresh(Math.floor(Math.random() * 15) + 20);
-        gaugeHumi.refresh(Math.floor(Math.random() * 40) + 40);
-    }, 3000);
-};
-
-
-// ==================== DEVICE FUNCTIONS ====================
-function openAddRelayDialog() {
-    document.getElementById('addRelayDialog').style.display = 'flex';
+function setGauge(id, value, min, max, suffix) {
+  const gauge = el(id);
+  if (!gauge) return;
+  const valid = Number.isFinite(value);
+  const percent = valid ? Math.min(100, Math.max(0, (value - min) * 100 / (max - min))) : 0;
+  gauge.style.setProperty('--progress', `${percent}%`);
+  gauge.dataset.valid = valid ? 'true' : 'false';
+  const label = gauge.querySelector('.gauge-value');
+  if (label) label.textContent = valid ? `${value.toFixed(1)} ${suffix}` : '—';
 }
-function closeAddRelayDialog() {
-    document.getElementById('addRelayDialog').style.display = 'none';
-}
-function saveRelay() {
-    const name = document.getElementById('relayName').value.trim();
-    const gpio = document.getElementById('relayGPIO').value.trim();
-    if (!name || !gpio) return alert("⚠️ Please fill all fields!");
-    relayList.push({ id: Date.now(), name, gpio, state: false });
-    renderRelays();
-    closeAddRelayDialog();
-}
-function renderRelays() {
-    const container = document.getElementById('relayContainer');
-    container.innerHTML = "";
-    relayList.forEach(r => {
-        const card = document.createElement('div');
-        card.className = 'device-card';
-        card.innerHTML = `
-      <i class="fa-solid fa-bolt device-icon"></i>
-      <h3>${r.name}</h3>
-      <p>GPIO: ${r.gpio}</p>
-      <button class="toggle-btn ${r.state ? 'on' : ''}" onclick="toggleRelay(${r.id})">
-        ${r.state ? 'ON' : 'OFF'}
-      </button>
-      <i class="fa-solid fa-trash delete-icon" onclick="showDeleteDialog(${r.id})"></i>
-    `;
-        container.appendChild(card);
-    });
-}
-function toggleRelay(id) {
-    const relay = relayList.find(r => r.id === id);
-    if (relay) {
-        relay.state = !relay.state;
-        const relayJSON = JSON.stringify({
-            page: "device",
-            value: {
-                name: relay.name,
-                status: relay.state ? "ON" : "OFF",
-                gpio: relay.gpio
-            }
-        });
-        Send_Data(relayJSON);
-        renderRelays();
+async function pollSensors() {
+  try {
+    const response = await fetch('/api/sensors', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    const temperature = Number(data.temperature);
+    const humidity = Number(data.humidity);
+    if (data.valid === true && Number.isFinite(temperature) && Number.isFinite(humidity)) {
+      setGauge('gauge_temp', temperature, -10, 50, '°C');
+      setGauge('gauge_humi', humidity, 0, 100, '%');
+      setText('sensorStatus', 'Cảm biến DHT20: Bình thường');
+      setText('lastUpdate', `Lần cập nhật: ${new Date().toLocaleTimeString('vi-VN')}`);
+    } else {
+      setGauge('gauge_temp', NaN, -10, 50, '°C');
+      setGauge('gauge_humi', NaN, 0, 100, '%');
+      setText('sensorStatus', data.sensor_error ? 'Cảm biến DHT20: Lỗi đọc' : 'Đang chờ dữ liệu DHT20 hợp lệ');
+      setText('lastUpdate', 'Chưa có dữ liệu hợp lệ');
     }
+  } catch (_error) {
+    setGauge('gauge_temp', NaN, -10, 50, '°C');
+    setGauge('gauge_humi', NaN, 0, 100, '%');
+    setText('sensorStatus', 'Không đọc được dữ liệu cảm biến từ WebServer');
+    setText('lastUpdate', 'Dữ liệu không khả dụng');
+  }
 }
-function showDeleteDialog(id) {
-    deleteTarget = id;
-    document.getElementById('confirmDeleteDialog').style.display = 'flex';
+function prettyUptime(sec) {
+  const seconds = Number(sec);
+  if (!Number.isFinite(seconds) || seconds < 0) return '—';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h} giờ ${m} phút`;
 }
-function closeConfirmDelete() {
-    document.getElementById('confirmDeleteDialog').style.display = 'none';
+async function pollInfo() {
+  try {
+    const response = await fetch('/api/info', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    info = await response.json();
+    setText('infoIp', info.ip || '—');
+    setText('infoWifi', `${info.wifi_mode || '—'} (${info.wifi_connected ? 'Đã kết nối' : 'Chưa kết nối Internet'})`);
+    setText('infoUptime', prettyUptime(info.uptime_seconds));
+    setText('infoCoreIot', info.core_iot_configured ? 'Đã lưu cấu hình' : 'Chưa lưu cấu hình');
+    setText('infoRelay', Number.isInteger(info.relay_gpio) && info.relay_gpio >= 0 ? `GPIO ${info.relay_gpio}` : 'Chưa được cấu hình');
+    if (!relayBusy) relayOn = info.relay_on === true;
+    renderRelay();
+  } catch (_error) {
+    info = null;
+    ['infoIp', 'infoWifi', 'infoUptime', 'infoCoreIot', 'infoRelay'].forEach(id => setText(id, 'Không khả dụng'));
+    renderRelay();
+  }
 }
-function confirmDelete() {
-    relayList = relayList.filter(r => r.id !== deleteTarget);
-    renderRelays();
-    closeConfirmDelete();
+function renderRelay() {
+  const area = el('relayContainer');
+  if (!area) return;
+  area.replaceChildren();
+  const gpio = info && Number.isInteger(info.relay_gpio) ? info.relay_gpio : -1;
+  if (gpio < 0) {
+    const text = document.createElement('p');
+    text.className = 'empty-state';
+    text.textContent = 'Relay Web chưa được cấu hình. Đề nghị thành viên phần cứng xác nhận chân GPIO an toàn rồi đặt WEB_RELAY_GPIO trong firmware.';
+    area.appendChild(text);
+    return;
+  }
+  const card = document.createElement('div');
+  card.className = 'device-card';
+  const title = document.createElement('h3');
+  title.textContent = 'Relay được cấu hình';
+  const pin = document.createElement('p');
+  pin.textContent = `GPIO ${gpio} · ${relayOn ? 'Mức HIGH' : 'Mức LOW'}`;
+  const description = document.createElement('p');
+  description.className = 'device-caption';
+  description.textContent = 'Trạng thái GPIO không xác nhận tải thực tế đã đóng/ngắt.';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `toggle-btn ${relayOn ? 'on' : ''}`;
+  button.textContent = relayBusy ? 'Đang chờ phản hồi…' : relayOn ? 'Tắt relay' : 'Bật relay';
+  button.disabled = relayBusy || !socketReady();
+  button.addEventListener('click', () => toggleRelay(gpio));
+  card.append(title, pin, description, button);
+  area.appendChild(card);
 }
-
-
-// ==================== SETTINGS FORM (BỔ SUNG) ====================
-document.getElementById("settingsForm").addEventListener("submit", function (e) {
-    e.preventDefault();
-
-    const ssid = document.getElementById("ssid").value.trim();
-    const password = document.getElementById("password").value.trim();
-    const token = document.getElementById("token").value.trim();
-    const server = document.getElementById("server").value.trim();
-    const port = document.getElementById("port").value.trim();
-
-    const settingsJSON = JSON.stringify({
-        page: "setting",
-        value: {
-            ssid: ssid,
-            password: password,
-            token: token,
-            server: server,
-            port: port
-        }
-    });
-
-    Send_Data(settingsJSON);
-    alert("✅ Cấu hình đã được gửi đến thiết bị!");
-});
+async function toggleRelay(gpio) {
+  if (relayBusy || !info || info.relay_gpio !== gpio) return;
+  relayBusy = true;
+  renderRelay();
+  try {
+    const result = await requestDevice('device', {
+      gpio,
+      status: relayOn ? 'OFF' : 'ON'
+    }, 'device_result');
+    relayOn = result.state === 'ON';
+    notify(`Thiết bị đã xác nhận ghi GPIO ${gpio}: ${result.state}. Kiểm tra relay thật để xác nhận tải.`, 'ok');
+  } catch (error) {
+    notify(`Lệnh relay chưa được xác nhận: ${error.message}`, 'error');
+  } finally {
+    relayBusy = false;
+    renderRelay();
+  }
+}
+async function submitSettings(event) {
+  event.preventDefault();
+  const ssid = el('ssid').value.trim();
+  const password = el('password').value;
+  const token = el('token').value.trim();
+  const server = el('server').value.trim();
+  const port = el('port').value.trim();
+  const portNum = Number(port);
+  if (!ssid || ssid.length > 32 || password.length > 63 || !token || !server ||
+      !Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+    notify('Kiểm tra SSID (1–32 ký tự), mật khẩu (tối đa 63 ký tự), token, server và port (1–65535).', 'error');
+    return;
+  }
+  const saveButton = el('saveSettings');
+  saveButton.disabled = true;
+  notify('Đã gửi yêu cầu; đang đợi thiết bị xác nhận lưu LittleFS…');
+  try {
+    const response = await requestDevice('setting', { ssid, password, token, server, port }, 'setting_saved');
+    notify(`${response.message || 'Đã lưu cấu hình.'} WebSocket sẽ ngắt khi thiết bị khởi động lại; hãy kết nối vào IP mới.`, 'ok');
+    // Do not persist secrets in browser storage or log them.
+    el('password').value = '';
+    el('token').value = '';
+  } catch (error) {
+    notify(`Lưu cấu hình chưa thành công: ${error.message}`, 'error');
+  } finally {
+    saveButton.disabled = false;
+  }
+}
+function init() {
+  const form = el('settingsForm');
+  if (form) form.addEventListener('submit', submitSettings);
+  setGauge('gauge_temp', NaN, -10, 50, '°C');
+  setGauge('gauge_humi', NaN, 0, 100, '%');
+  connectSocket();
+  pollSensors();
+  pollInfo();
+  setInterval(pollSensors, POLL_SENSOR_MS);
+  setInterval(pollInfo, POLL_INFO_MS);
+}
+window.addEventListener('DOMContentLoaded', init);
