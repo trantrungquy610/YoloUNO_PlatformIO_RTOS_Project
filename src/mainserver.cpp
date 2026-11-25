@@ -282,7 +282,11 @@ String settingsPage()
         if (!ssid) { msgBox.innerText = 'Vui lòng nhập tên Wi-Fi.'; return; }
         msgBox.innerText = 'Đang bắt đầu kết nối...';
         try {
-          const r = await fetch('/connect?ssid='+encodeURIComponent(ssid)+'&pass='+encodeURIComponent(pass));
+          const r = await fetch('/connect', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: new URLSearchParams({ssid, pass}).toString()
+          });
           const result = await r.json();
           if (!r.ok) { msgBox.innerText = result.message || 'Không thể bắt đầu kết nối.'; return; }
           msgBox.innerText = 'Đang kết nối Wi-Fi, vui lòng chờ...';
@@ -351,7 +355,7 @@ void handleConnect()
 {
   const String newSsid = mainServer.arg("ssid");
   const String newPassword = mainServer.arg("pass");
-  if (newSsid.isEmpty())
+  if (newSsid.isEmpty() || newSsid.length() > 32 || newPassword.length() > 63)
   {
     mainServer.send(400, "application/json", "{\"state\":\"failed\",\"message\":\"SSID khong duoc de trong\"}");
     return;
@@ -400,7 +404,7 @@ void setupServer()
   mainServer.on("/toggle", HTTP_GET, handleToggle);
   mainServer.on("/sensors", HTTP_GET, handleSensors);
   mainServer.on("/settings", HTTP_GET, handleSettings);
-  mainServer.on("/connect", HTTP_GET, handleConnect);
+  mainServer.on("/connect", HTTP_POST, handleConnect);
   mainServer.on("/connect-status", HTTP_GET, handleConnectStatus);
   mainServer.begin();
   Serial.println("MainServer started on port 80");
