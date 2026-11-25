@@ -13,10 +13,6 @@ String CORE_IOT_TOKEN;
 String CORE_IOT_SERVER;
 String CORE_IOT_PORT;
 
-String ssid = "ESP32-TEAM007";
-String password = "12345678";
-String wifi_ssid = "abcde";
-String wifi_password = "123456789";
 boolean isWifiConnected = false;
 volatile bool isNetworkReady = false;
 volatile bool wifiConfigInProgress = false;

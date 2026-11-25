@@ -59,6 +59,16 @@ static void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
 }
 
 static void sendJson(AsyncWebServerRequest *request, JsonDocument &doc)
+{
+    String result;
+    serializeJson(doc, result);
+    AsyncWebServerResponse *response =
+        request->beginResponse(200, "application/json", result);
+    response->addHeader("Cache-Control", "no-store");
+    response->addHeader("X-Content-Type-Options", "nosniff");
+    request->send(response);
+}
+
 // =====================================================
 // Gesture HTTP Frame Receiver
 // =====================================================
@@ -175,16 +185,6 @@ static void registerGestureEndpoint()
         });
 }
 
-void connnectWSV()
-{
-    String result;
-    serializeJson(doc, result);
-    AsyncWebServerResponse *response = request->beginResponse(200, "application/json", result);
-    response->addHeader("Cache-Control", "no-store");
-    response->addHeader("X-Content-Type-Options", "nosniff");
-    request->send(response);
-}
-
 static void startServer()
 {
     const int gpio = webRelayGpio();
@@ -250,21 +250,12 @@ static void startServer()
         sendJson(request, doc);
     });
 
+    registerGestureEndpoint();
+
     // OTA requires an explicit security review; do not expose unauthenticated OTA.
 #if defined(WEB_ENABLE_OTA) && WEB_ENABLE_OTA
     ElegantOTA.begin(&asyncServer);
 #endif
-    asyncServer.begin();
-    asyncServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-                   { request->send(LittleFS, "/index.html", "text/html"); });
-    asyncServer.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request)
-                   { request->send(LittleFS, "/script.js", "application/javascript"); });
-    asyncServer.on("/styles.css", HTTP_GET, [](AsyncWebServerRequest *request)
-                   { request->send(LittleFS, "/styles.css", "text/css"); });
-    asyncServer.on("/health", HTTP_GET, [](AsyncWebServerRequest *request)
-                   { request->send(200, "text/plain", "AsyncWebServer is working!"); });
-    ElegantOTA.begin(&asyncServer);
-    registerGestureEndpoint();
     asyncServer.begin();
     Serial.println("AsyncWebServer started on port 8080");
 
