@@ -11,6 +11,7 @@ struct GesturePrediction
 {
     uint8_t class_index;
     float confidence;
+    uint32_t inference_ms;
     const char *label;
 };
 

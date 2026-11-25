@@ -284,6 +284,7 @@ bool gesture_ai_predict(
 
     result.class_index = best_index;
     result.confidence = confidence;
+    result.inference_ms = elapsed;
     result.label = gesture_labels[best_index];
 
     Serial.printf(
