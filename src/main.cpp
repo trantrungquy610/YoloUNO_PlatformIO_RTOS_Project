@@ -4,36 +4,93 @@
 #include "neo_blinky.h"
 #include "temp_humi_monitor.h"
 #include "mainserver.h"
-
-#include "coreiot.h"
+#include "task_mqtt_gateway.h"
+#include "task_fan.h"
+#include "task_rgb.h"
+#include "task_gesture.h"
 
 // include task
 #include "task_check_info.h"
 #include "task_toogle_boot.h"
 #include "task_wifi.h"
 #include "task_webserver.h"
-#include "task_core_iot.h"
 
 void setup()
 {
   Serial.begin(115200);
+  delay(1000);
+  Serial.println();
+  Serial.println("========== SETUP START ==========");
 
+  // 1. Initialize Internet semaphore
   xBinarySemaphoreInternet = xSemaphoreCreateBinary();
+
   if (xBinarySemaphoreInternet == nullptr)
   {
-    Serial.println("ERROR: Cannot create Internet semaphore!");
+    Serial.println("[ERROR] Cannot create Internet semaphore!");
+  }
+  ////
+  if (task_rgb_init())
+  {
+    Serial.println("[RGB] Queue initialized");
+  }
+  else
+  {
+    Serial.println("[RGB] Queue initialization FAILED");
+  }
+  xTaskCreate(task_rgb, "RGB LED", 2048, NULL, 1, NULL);
+
+  // 2. Initialize Gesture BEFORE other tasks
+  Serial.println("[GESTURE] Step 1: Initializing Queue...");
+
+  if (gesture_task_init())
+  {
+    Serial.println("[GESTURE] Step 2: Queue initialized");
+
+    BaseType_t result = xTaskCreate(
+        gesture_ai_task,
+        "Gesture AI Task",
+        8192,
+        NULL,
+        1,
+        NULL);
+
+    if (result == pdPASS)
+    {
+      Serial.println("[GESTURE] Step 3: Task created successfully");
+    }
+    else
+    {
+      Serial.println("[GESTURE] Step 3: Task creation FAILED");
+    }
+  }
+  else
+  {
+    Serial.println("[GESTURE] Queue initialization FAILED");
   }
 
+  // 3. Existing initialization
   check_info_File(0);
+
+  Serial.println("[SETUP] Creating existing tasks...");
 
   xTaskCreate(led_blinky, "Task LED Blink", 2048, NULL, 2, NULL);
   xTaskCreate(task_neopixel, "Task NEO Pixel", 4096, NULL, 2, NULL);
   xTaskCreate(temp_humi_monitor, "Task TEMP HUMI Monitor", 4096, NULL, 2, NULL);
   xTaskCreate(main_server_task, "Task Main Server", 8192, NULL, 2, NULL);
-  // xTaskCreate(coreiot_task, "CoreIOT Task" ,4096  ,NULL  ,2 , NULL);
   xTaskCreate(Task_Toogle_BOOT, "Task_Toogle_BOOT", 4096, NULL, 2, NULL);
-}
+  if (fan_control_init())
+  {
+    xTaskCreate(task_fan_control, "Task Fan", 2048, NULL, 1, NULL);
+  }
+  else
+  {
+    Serial.println("[FAN] Fan control disabled: queue initialization failed");
+  }
+  xTaskCreate(mqtt_gateway_task, "MQTT Gateway Task", 6144, NULL, 2, NULL);
 
+  Serial.println("========== SETUP END ==========");
+}
 void loop()
 {
   if (check_info_File(1))
