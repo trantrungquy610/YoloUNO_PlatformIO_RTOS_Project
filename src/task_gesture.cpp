@@ -4,6 +4,8 @@
 #include "task_gesture.h"
 #include "gesture_inference.h"
 #include "task_rgb.h"
+#include <cstring>
+#include <stdio.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -13,6 +15,17 @@ static QueueHandle_t gestureFrameQueue = nullptr;
 
 // Dùng static để không chiếm 4096 byte stack của AI Task.
 static GestureFrame gestureFrame;
+static portMUX_TYPE gestureTelemetryMux = portMUX_INITIALIZER_UNLOCKED;
+static GestureTelemetry latestGestureTelemetry = {"unknown", 0.0f, 0, 0};
+static bool previousPredictionWasActionGesture = false;
+static char previousActionGesture[24] = "";
+
+void gesture_get_telemetry(GestureTelemetry &telemetry)
+{
+    portENTER_CRITICAL(&gestureTelemetryMux);
+    telemetry = latestGestureTelemetry;
+    portEXIT_CRITICAL(&gestureTelemetryMux);
+}
 
 // =====================================================
 // Initialize Gesture Queue
@@ -82,6 +95,35 @@ void gesture_ai_task(void *pvParameters)
 
                 bool validGesture =
                     prediction.confidence >= CONFIDENCE_THRESHOLD;
+
+                const char *reportedGesture =
+                    validGesture ? prediction.label : "unknown";
+
+                // Count a gesture when entering a confident action class.
+                // no_hand/unknown rearms the counter for the next gesture.
+                if (!validGesture || prediction.class_index == 1)
+                {
+                    previousPredictionWasActionGesture = false;
+                    previousActionGesture[0] = '\0';
+                }
+                else if (!previousPredictionWasActionGesture ||
+                         strcmp(previousActionGesture, prediction.label) != 0)
+                {
+                    portENTER_CRITICAL(&gestureTelemetryMux);
+                    latestGestureTelemetry.gesture_count++;
+                    portEXIT_CRITICAL(&gestureTelemetryMux);
+                    snprintf(previousActionGesture, sizeof(previousActionGesture),
+                             "%s", prediction.label);
+                    previousPredictionWasActionGesture = true;
+                }
+
+                portENTER_CRITICAL(&gestureTelemetryMux);
+                snprintf(latestGestureTelemetry.gesture,
+                         sizeof(latestGestureTelemetry.gesture), "%s",
+                         reportedGesture);
+                latestGestureTelemetry.confidence = prediction.confidence;
+                latestGestureTelemetry.inference_ms = prediction.inference_ms;
+                portEXIT_CRITICAL(&gestureTelemetryMux);
 
                 if (validGesture)
                 {

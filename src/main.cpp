@@ -79,8 +79,15 @@ void setup()
   xTaskCreate(temp_humi_monitor, "Task TEMP HUMI Monitor", 4096, NULL, 2, NULL);
   xTaskCreate(main_server_task, "Task Main Server", 8192, NULL, 2, NULL);
   xTaskCreate(Task_Toogle_BOOT, "Task_Toogle_BOOT", 4096, NULL, 2, NULL);
+  if (fan_control_init())
+  {
+    xTaskCreate(task_fan_control, "Task Fan", 2048, NULL, 1, NULL);
+  }
+  else
+  {
+    Serial.println("[FAN] Fan control disabled: queue initialization failed");
+  }
   xTaskCreate(mqtt_gateway_task, "MQTT Gateway Task", 6144, NULL, 2, NULL);
-  xTaskCreate(task_fan_control, "Task Fan", 2048, NULL, 1, NULL);
 
   Serial.println("========== SETUP END ==========");
 }

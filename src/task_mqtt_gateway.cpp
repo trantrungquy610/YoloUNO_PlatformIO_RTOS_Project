@@ -6,18 +6,20 @@
 #include <ArduinoJson.h>
 
 #include "global.h"
+#include "task_fan.h"
+#include "task_gesture.h"
 
 // ========================================
 // MQTT GATEWAY CONFIGURATION
 // ========================================
 
 // Thay bằng IPv4 của máy chạy Docker Gateway
-const char *MQTT_SERVER = "192.168.8.124";
+const char *MQTT_SERVER = "192.168.45.124";
 
 constexpr uint16_t MQTT_PORT = 1883;
 
 // Tên thiết bị trên CoreIoT
-const char *DEVICE_ID = "esp32_01";
+const char *DEVICE_ID = "esp32_02";
 
 // MQTT topics
 String telemetryTopic =
@@ -73,16 +75,29 @@ void mqttCallback(char *topic, byte *payload,
 
     const char *method = doc["method"] | "";
 
-    if (strcmp(method, "setLedSwitchValue") == 0)
+    if (strcmp(method, "setFanSpeed") == 0)
     {
-        bool state = doc["params"] | false;
+        if (!doc["params"].is<int>())
+        {
+            Serial.println("[MQTT] setFanSpeed expects integer params from 0 to 100");
+            return;
+        }
 
-        Serial.print("[MQTT] LED command: ");
-        Serial.println(state ? "ON" : "OFF");
+        const int requestedPercent = doc["params"].as<int>();
+        if (requestedPercent < 0 || requestedPercent > 100)
+        {
+            Serial.println("[MQTT] Fan speed must be between 0 and 100");
+            return;
+        }
 
-        // TODO:
-        // Kết nối với logic điều khiển LED
-        // của firmware sau khi xác định GPIO LED.
+        if (fan_set_speed_percent(static_cast<uint8_t>(requestedPercent)))
+        {
+            Serial.printf("[MQTT] Fan speed command accepted: %d%%\n", requestedPercent);
+        }
+        else
+        {
+            Serial.println("[MQTT] Fan command rejected: fan queue is unavailable");
+        }
     }
     else
     {
@@ -137,7 +152,7 @@ bool mqttConnect()
 // PUBLISH SENSOR DATA
 // ========================================
 
-void publishSensorData()
+void publishTelemetry()
 {
     float temperature;
     float humidity;
@@ -151,18 +166,22 @@ void publishSensorData()
     humidity = glob_humidity;
     portEXIT_CRITICAL(&humidityMux);
 
-    if (!glob_temperature_valid || glob_sensor_error)
+    StaticJsonDocument<256> doc;
+    if (glob_temperature_valid && !glob_sensor_error)
     {
-        Serial.println("[MQTT] Sensor data invalid!");
-        return;
+        doc["temperature"] = temperature;
+        doc["humidity"] = humidity;
     }
 
-    StaticJsonDocument<128> doc;
+    GestureTelemetry gestureTelemetry;
+    gesture_get_telemetry(gestureTelemetry);
+    doc["gesture"] = gestureTelemetry.gesture;
+    doc["confidence"] = gestureTelemetry.confidence;
+    doc["inference_ms"] = gestureTelemetry.inference_ms;
+    doc["gesture_count"] = gestureTelemetry.gesture_count;
+    doc["fan_speed_percent"] = fan_get_speed_percent();
 
-    doc["temperature"] = temperature;
-    doc["humidity"] = humidity;
-
-    char payload[128];
+    char payload[256];
 
     serializeJson(doc, payload, sizeof(payload));
 
@@ -196,7 +215,7 @@ void mqtt_gateway_task(void *pvParameters)
     unsigned long lastPublish = 0;
     unsigned long lastReconnect = 0;
 
-    const unsigned long publishInterval = 10000;
+    const unsigned long publishInterval = 2000;
     const unsigned long reconnectInterval = 5000;
 
     while (true)
@@ -227,7 +246,7 @@ void mqtt_gateway_task(void *pvParameters)
             if (millis() - lastPublish >= publishInterval)
             {
                 lastPublish = millis();
-                publishSensorData();
+                publishTelemetry();
             }
         }
 
