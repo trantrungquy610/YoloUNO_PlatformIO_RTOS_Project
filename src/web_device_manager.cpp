@@ -100,6 +100,25 @@ bool gpioInUse(int gpio, int ignoredIndex = -1)
     return false;
 }
 
+String gpioReservedReason(int gpio)
+{
+    if (gpio < 1 || gpio > 48)
+        return "GPIO phai nam trong khoang 1 den 48";
+    if (gpio == 6) return "GPIO 6 dang duoc quat hien tai su dung";
+    if (gpio == 8) return "GPIO 8 dang duoc task_rgb su dung cho NeoPixel hien tai";
+    if (gpio == 11 || gpio == 12) return "GPIO 11/12 dang duoc bus I2C cua DHT20/LCD su dung";
+    if (gpio == 45) return "GPIO 45 dang duoc NeoPixel nhiet do su dung";
+    if (gpio == 41) return "GPIO 41 dang duoc LED2 su dung";
+    if (gpio == 48) return "GPIO 48 dang duoc LED onboard su dung";
+    if (gpio == 19 || gpio == 20) return "GPIO 19/20 duoc danh rieng cho USB native";
+    if (gpio == 0 || gpio == 3 || (gpio >= 26 && gpio <= 37) ||
+        gpio == 43 || gpio == 44 || gpio == 46)
+        return "GPIO nay duoc danh rieng cho boot, flash/PSRAM hoac giao tiep noi bo";
+    if (WEB_RELAY_GPIO > 0 && gpio == WEB_RELAY_GPIO)
+        return "GPIO nay da duoc cau hinh cho relay co dinh";
+    return "GPIO nay dang duoc firmware danh rieng";
+}
+
 void turnOff(WebDevice &device)
 {
     if (device.type == DeviceType::Relay)
@@ -327,8 +346,10 @@ bool webDeviceAdd(const String &name, const String &typeText, int gpio,
         error = "Loai thiet bi khong duoc ho tro";
     else if (deviceCount >= MAX_WEB_DEVICES)
         error = "Da dat gioi han so thiet bi web";
-    else if (gpioIsReserved(gpio) || gpioInUse(gpio))
-        error = "GPIO khong hop le, dang duoc su dung hoac dang duoc danh rieng";
+    else if (gpioIsReserved(gpio))
+        error = gpioReservedReason(gpio);
+    else if (gpioInUse(gpio))
+        error = "GPIO " + String(gpio) + " da duoc mot thiet bi da them su dung";
     else if (type == DeviceType::Rgb && (pixelCount < 1 || pixelCount > MAX_RGB_PIXELS))
         error = "NeoPixel ho tro tu 1 den 64 pixel";
     else if (type != DeviceType::Relay && activeLow)
