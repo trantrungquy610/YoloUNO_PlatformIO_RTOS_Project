@@ -77,8 +77,10 @@ bool parseType(const String &value, DeviceType &type)
 bool gpioIsReserved(int gpio)
 {
     // Pins used by this firmware or reserved by the ESP32-S3/Yolo UNO board.
+    // GPIO 10 is exposed on the currently empty Grove D7 port. The RS485
+    // implementation mentions it but its task is not started by main.cpp.
     if (gpio < 1 || gpio > 48 || gpio == 0 || gpio == 3 ||
-        gpio == 6 || gpio == 8 || gpio == 9 || gpio == 10 ||
+        gpio == 6 || gpio == 8 || gpio == 9 ||
         gpio == 11 || gpio == 12 || gpio == 19 || gpio == 20 ||
         gpio == 26 || gpio == 27 || gpio == 28 || gpio == 29 ||
         gpio == 30 || gpio == 31 || gpio == 32 || gpio == 33 ||
@@ -106,6 +108,7 @@ String gpioReservedReason(int gpio)
         return "GPIO phai nam trong khoang 1 den 48";
     if (gpio == 6) return "GPIO 6 dang duoc quat hien tai su dung";
     if (gpio == 8) return "GPIO 8 dang duoc task_rgb su dung cho NeoPixel hien tai";
+    if (gpio == 9) return "GPIO 9 thuoc cong D6-D5 dang cam RGB va duoc danh rieng cho RS485 TX";
     if (gpio == 11 || gpio == 12) return "GPIO 11/12 dang duoc bus I2C cua DHT20/LCD su dung";
     if (gpio == 45) return "GPIO 45 dang duoc NeoPixel nhiet do su dung";
     if (gpio == 41) return "GPIO 41 dang duoc LED2 su dung";
