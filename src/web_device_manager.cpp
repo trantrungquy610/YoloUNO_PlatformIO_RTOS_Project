@@ -3,7 +3,6 @@
 #include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
-#include <new>
 #include <stdio.h>
 
 #include "freertos/FreeRTOS.h"
@@ -149,7 +148,9 @@ bool startDevice(WebDevice &device)
         return true;
     }
 
-    device.pixels = new (std::nothrow) Adafruit_NeoPixel(
+    // The Arduino-ESP32 toolchain used here does not provide std::nothrow
+    // operator new. Use the library's normal constructor supported by this core.
+    device.pixels = new Adafruit_NeoPixel(
         device.pixelCount, device.gpio, NEO_GRB + NEO_KHZ800);
     if (device.pixels == nullptr)
         return false;
