@@ -4,6 +4,7 @@
 #include <math.h>
 #include "task_gesture.h"
 #include "task_fan.h"
+#include "web_device_manager.h"
 #include <cstring>
 #include <stdlib.h>
 #include <string.h>
@@ -250,6 +251,11 @@ static void startServer()
         if (webRelayGpio() >= 0) doc["relay_on"] = webRelayState();
         doc["fan_speed_percent"] = fan_get_speed_percent();
         sendJson(request, doc);
+    });
+    asyncServer.on("/api/devices", HTTP_GET, [](AsyncWebServerRequest *request) {
+        AsyncWebServerResponse *response = request->beginResponse(200, "application/json", webDevicesJson());
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
     });
 
     registerGestureEndpoint();

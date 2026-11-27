@@ -14,6 +14,7 @@
 #include "task_toogle_boot.h"
 #include "task_wifi.h"
 #include "task_webserver.h"
+#include "web_device_manager.h"
 
 void setup()
 {
@@ -71,6 +72,10 @@ void setup()
 
   // 3. Existing initialization
   check_info_File(0);
+  if (!webDevicesInit())
+  {
+    Serial.println("[WEB-DEVICES] Device manager initialization failed");
+  }
 
   Serial.println("[SETUP] Creating existing tasks...");
 

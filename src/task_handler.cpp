@@ -2,6 +2,7 @@
 #include "task_webserver.h"
 #include "task_check_info.h"
 #include "task_fan.h"
+#include "web_device_manager.h"
 
 // Reject known-in-use/reserved pins. GPIO must also be explicitly configured.
 // Board pinout and relay polarity MUST be verified before changing -1.
@@ -52,6 +53,40 @@ void handleWebSocketMessage(AsyncWebSocketClient *client, const String &message)
 
     const String page = doc["page"].as<String>();
     const uint32_t requestId = doc["request_id"] | 0UL;
+    if (page == "device_add" || page == "device_remove" || page == "managed_device_control")
+    {
+        StaticJsonDocument<384> response;
+        response["page"] = page == "device_add" ? "device_added" :
+                            page == "device_remove" ? "device_removed" : "managed_device_result";
+        response["request_id"] = requestId;
+        String messageText;
+        bool ok = false;
+        uint32_t deviceId = doc["value"]["id"] | 0UL;
+        bool state = false;
+        if (page == "device_add")
+        {
+            const String name = doc["value"]["name"].as<String>();
+            const String type = doc["value"]["type"].as<String>();
+            const int gpio = doc["value"]["gpio"] | -1;
+            const int pixelCount = doc["value"]["pixel_count"] | 4;
+            const bool activeLow = doc["value"]["active_low"] | false;
+            ok = webDeviceAdd(name, type, gpio, pixelCount, activeLow, deviceId, messageText);
+            if (ok) response["id"] = deviceId;
+        }
+        else if (page == "device_remove")
+            ok = webDeviceRemove(deviceId, messageText);
+        else
+        {
+            const String type = doc["value"]["type"].as<String>();
+            const int value = doc["value"]["value"] | -1;
+            ok = webDeviceControl(deviceId, type, value, state, messageText);
+            if (ok) response["state"] = state;
+        }
+        response["status"] = ok ? "ok" : "error";
+        if (!ok) response["message"] = messageText;
+        replyJson(client, response);
+        return;
+    }
     if (page == "device")
     {
         StaticJsonDocument<256> response;

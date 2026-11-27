@@ -381,6 +381,14 @@ body {
 .info-card strong { font-size: 14px; color: #5c6a78; }
 .info-card span { overflow-wrap: anywhere; color: #135b8e; font-weight: 600; }
 .input-group .input-prefix { position: absolute; top: 50%; left: 16px; transform: translateY(-50%); }
+.device-form { display: grid; gap: 9px; max-width: 520px; }
+.device-form input:not([type="checkbox"]), .device-form select, .managed-device-card input[type="range"] { width: 100%; padding: 10px 12px; border: 1px solid #cbd8e5; border-radius: 9px; background: #fff; }
+.device-form input[type="checkbox"] { width: auto; }
+.device-form button, .managed-device-card button { border: 0; border-radius: 9px; padding: 10px 14px; cursor: pointer; color: white; background: #1685d4; font-weight: 600; margin-top: 8px; }
+.managed-device-card button.remove-device { background: #d94e4e; }
+.managed-device-card { min-width: min(100%, 260px); }
+.check-label { display: flex; align-items: center; gap: 8px; }
+.device-form [hidden] { display: none !important; }
 @media (max-width: 800px) {
   body { min-height: 100vh; height: auto; display: block; }
   .sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; justify-content: center; padding: 4px 8px; }

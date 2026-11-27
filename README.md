@@ -45,12 +45,15 @@ Khi chưa có Wi-Fi đã lưu, thiết bị tạo access point với SSID và m�
 
 - **Cổng 80:** trang chính và thiết lập Wi-Fi (`/settings`); gửi thông tin kết nối qua `/connect` và kiểm tra kết quả tại `/connect-status`.
 - **Cổng 8080:** dashboard từ LittleFS (`/`), `/health`, `/api/sensors`, `/api/info`, WebSocket `/ws` và endpoint Gesture-AI `POST /api/gesture/frame`.
-- Trong mục **Thiết bị**, thanh trượt quạt gửi mức PWM 0–100% tới cùng hàng đợi điều khiển dùng bởi RPC; dashboard đọc lại `fan_speed_percent` từ `/api/info`.
+- Trong mục **Thiết bị**, thanh trượt quạt hệ thống gửi mức PWM 0–100% tới cùng hàng đợi điều khiển dùng bởi RPC; `/api/devices` liệt kê các thiết bị thêm từ giao diện.
+- Biểu mẫu **Thêm thiết bị** hỗ trợ relay, đầu ra PWM cho quạt và NeoPixel (mặc định 4 pixel). Cấu hình tối đa 8 thiết bị được lưu trong `/web_devices.json` trên LittleFS và khôi phục khi khởi động. Cần cập nhật firmware một lần để có chức năng này; sau đó có thể thêm/xóa cấu hình từ WebServer mà không nạp lại firmware.
 - `/api/gesture/frame` yêu cầu `Content-Type: application/octet-stream` và đúng 4096 byte grayscale (64 × 64). Trả `202` khi frame được đưa vào hàng đợi; trả lỗi nếu frame không hợp lệ hoặc queue chưa sẵn sàng.
 
 WebServer hiện không có xác thực đầy đủ. Chỉ dùng trên mạng tin cậy, không mở cổng ra Internet. OTA bị tắt mặc định; chỉ bật sau khi đã đánh giá bảo mật và cấu hình xác thực phù hợp.
 
 Relay Web bị vô hiệu hóa mặc định (`WEB_RELAY_GPIO = -1`). Không bật relay hoặc nối tải vào GPIO trước khi xác nhận sơ đồ chân, mạch driver và cực tính phần cứng. Quạt phải dùng mạch công suất/driver phù hợp, không cấp nguồn trực tiếp từ GPIO ESP32.
+
+Thiết bị thêm từ web vẫn cần loại phần cứng được firmware hỗ trợ và một GPIO thật sự còn trống, được đưa ra đầu nối của đúng phiên bản YoloUNO. Firmware từ chối một số GPIO dùng nội bộ/được dành riêng, nhưng danh sách này không thể xác nhận chân nào đang nối với module ngoài trên board của bạn. Kiểm tra sơ đồ chân trước khi lưu cấu hình. Điều khiển GPIO chỉ xác nhận mức tín hiệu đã đặt, không xác nhận relay/quạt hoặc tải bên ngoài hoạt động.
 
 ## MQTT và CoreIoT Gateway
 

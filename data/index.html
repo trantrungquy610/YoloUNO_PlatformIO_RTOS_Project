@@ -58,7 +58,7 @@
     <div id="device" class="section" style="display:none;">
       <header>
         <h1>Điều khiển thiết bị</h1>
-        <p>Điều chỉnh quạt và quản lý relay đã được cấu hình.</p>
+        <p>Thêm relay, quạt PWM hoặc NeoPixel. Thiết bị đã thêm được lưu trên YOLO UNO.</p>
       </header>
 
       <div class="device-list">
@@ -74,6 +74,28 @@
       </div>
 
       <div class="device-list" id="relayContainer"></div>
+
+      <section class="device-card add-device-card">
+        <h2>Thêm thiết bị</h2>
+        <form id="addDeviceForm" class="device-form">
+          <label for="newDeviceName">Tên thiết bị</label>
+          <input id="newDeviceName" maxlength="32" required placeholder="Ví dụ: Quạt phòng">
+          <label for="newDeviceType">Loại</label>
+          <select id="newDeviceType">
+            <option value="relay">Relay</option>
+            <option value="fan">Quạt PWM</option>
+            <option value="rgb">NeoPixel (mặc định 4 bóng)</option>
+          </select>
+          <label for="newDeviceGpio">GPIO điều khiển</label>
+          <input id="newDeviceGpio" type="number" min="1" max="48" required placeholder="Chọn GPIO trống trên board">
+          <label id="pixelCountLabel" for="newDevicePixels" hidden>Số pixel</label>
+          <input id="newDevicePixels" type="number" min="1" max="64" value="4" hidden>
+          <label id="activeLowLabel" class="check-label"><input id="newDeviceActiveLow" type="checkbox"> Relay active-low</label>
+          <button id="addDeviceButton" type="submit">Thêm thiết bị</button>
+        </form>
+        <p class="device-caption">Chỉ chọn GPIO còn trống và được đưa ra đầu nối trên đúng phiên bản YOLO UNO. Quạt cần mạch driver phù hợp; không nối tải công suất trực tiếp vào GPIO.</p>
+      </section>
+      <div class="device-list" id="managedDeviceList"></div>
 
     </div>
 

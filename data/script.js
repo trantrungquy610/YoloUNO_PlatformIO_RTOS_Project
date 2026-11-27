@@ -17,6 +17,7 @@ let relayBusy = false;
 let relayOn = false;
 let fanBusy = false;
 let fanDragging = false;
+let managedDevices = [];
 
 function setText(id, value) {
   const node = el(id);
@@ -66,7 +67,7 @@ function connectSocket() {
     let data;
     try { data = JSON.parse(event.data); } catch (_error) { return; }
     const requestId = Number(data.request_id);
-    if ((data.page === 'device_result' || data.page === 'fan_result' || data.page === 'setting_saved') && pending.has(requestId)) {
+    if ((data.page === 'device_result' || data.page === 'fan_result' || data.page === 'setting_saved' || data.page === 'device_added' || data.page === 'device_removed' || data.page === 'managed_device_result') && pending.has(requestId)) {
       const op = pending.get(requestId);
       pending.delete(requestId);
       clearTimeout(op.timer);
@@ -245,6 +246,100 @@ function renderFan() {
   else if (!socketReady()) setText('fanControlStatus', 'Kết nối WebSocket để điều khiển quạt.');
   else setText('fanControlStatus', 'Sẵn sàng điều khiển.');
 }
+async function pollManagedDevices() {
+  try {
+    const response = await fetch('/api/devices', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    managedDevices = Array.isArray(data.devices) ? data.devices : [];
+    renderManagedDevices();
+  } catch (_error) {
+    setText('managedDeviceList', 'Không đọc được danh sách thiết bị đã thêm.');
+  }
+}
+function renderManagedDevices() {
+  const list = el('managedDeviceList');
+  if (!list) return;
+  list.replaceChildren();
+  if (!managedDevices.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-state';
+    empty.textContent = 'Chưa có thiết bị nào được thêm.';
+    list.appendChild(empty);
+    return;
+  }
+  managedDevices.forEach(device => {
+    const card = document.createElement('section');
+    card.className = 'device-card managed-device-card';
+    const title = document.createElement('h3');
+    title.textContent = device.name;
+    const detail = document.createElement('p');
+    detail.className = 'device-caption';
+    detail.textContent = `${device.type === 'rgb' ? 'NeoPixel' : device.type === 'fan' ? 'Quạt PWM' : 'Relay'} · GPIO ${device.gpio}${device.pixel_count ? ` · ${device.pixel_count} pixel` : ''}`;
+    card.append(title, detail);
+    if (device.type === 'relay') {
+      const button = document.createElement('button');
+      button.className = `toggle-btn ${device.on ? 'on' : ''}`;
+      button.textContent = device.on ? 'Tắt relay' : 'Bật relay';
+      button.disabled = !socketReady();
+      button.addEventListener('click', () => controlManagedDevice(device, device.on ? 0 : 1));
+      card.appendChild(button);
+    } else if (device.type === 'fan') {
+      const label = document.createElement('label');
+      label.textContent = `Tốc độ: ${device.percent}%`;
+      const slider = document.createElement('input');
+      slider.type = 'range'; slider.min = '0'; slider.max = '100'; slider.value = String(device.percent || 0);
+      slider.disabled = !socketReady();
+      slider.addEventListener('change', () => controlManagedDevice(device, Number(slider.value)));
+      card.append(label, slider);
+    } else {
+      const color = document.createElement('input');
+      color.type = 'color'; color.value = /^#[0-9A-Fa-f]{6}$/.test(device.color) ? device.color : '#000000';
+      const apply = document.createElement('button');
+      apply.textContent = 'Đặt màu'; apply.disabled = !socketReady();
+      apply.addEventListener('click', () => controlManagedDevice(device, parseInt(color.value.slice(1), 16)));
+      card.append(color, apply);
+    }
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.className = 'remove-device'; remove.textContent = 'Xóa thiết bị';
+    remove.disabled = !socketReady();
+    remove.addEventListener('click', () => removeManagedDevice(device));
+    card.appendChild(remove);
+    list.appendChild(card);
+  });
+}
+async function controlManagedDevice(device, value) {
+  try {
+    await requestDevice('managed_device_control', { id: device.id, type: device.type, value }, 'managed_device_result');
+    await pollManagedDevices();
+    notify(`Đã gửi lệnh cho ${device.name}.`, 'ok');
+  } catch (error) { notify(`Điều khiển chưa thành công: ${error.message}`, 'error'); }
+}
+async function removeManagedDevice(device) {
+  try {
+    await requestDevice('device_remove', { id: device.id }, 'device_removed');
+    await pollManagedDevices();
+    notify(`Đã xóa ${device.name} khỏi cấu hình.`, 'ok');
+  } catch (error) { notify(`Chưa xóa được thiết bị: ${error.message}`, 'error'); }
+}
+async function addManagedDevice(event) {
+  event.preventDefault();
+  const type = el('newDeviceType').value;
+  const value = {
+    name: el('newDeviceName').value.trim(), type,
+    gpio: Number(el('newDeviceGpio').value),
+    pixel_count: Number(el('newDevicePixels').value || 4),
+    active_low: el('newDeviceActiveLow').checked
+  };
+  const button = el('addDeviceButton'); button.disabled = true;
+  try {
+    await requestDevice('device_add', value, 'device_added');
+    el('newDeviceName').value = ''; el('newDeviceGpio').value = '';
+    await pollManagedDevices();
+    notify('Đã thêm và lưu thiết bị. Cấu hình vẫn còn sau khi khởi động lại.', 'ok');
+  } catch (error) { notify(`Chưa thêm được thiết bị: ${error.message}`, 'error'); }
+  finally { button.disabled = false; }
+}
 async function setFanSpeed() {
   const slider = el('fanSpeedSlider');
   if (!slider || fanBusy || !socketReady()) return;
@@ -306,6 +401,16 @@ async function submitSettings(event) {
 function init() {
   const form = el('settingsForm');
   if (form) form.addEventListener('submit', submitSettings);
+  const addForm = el('addDeviceForm');
+  if (addForm) addForm.addEventListener('submit', addManagedDevice);
+  const typeSelect = el('newDeviceType');
+  if (typeSelect) typeSelect.addEventListener('change', () => {
+    const isRgb = typeSelect.value === 'rgb';
+    const isRelay = typeSelect.value === 'relay';
+    el('pixelCountLabel').hidden = !isRgb;
+    el('newDevicePixels').hidden = !isRgb;
+    el('activeLowLabel').hidden = !isRelay;
+  });
   const fanSlider = el('fanSpeedSlider');
   if (fanSlider) {
     fanSlider.addEventListener('pointerdown', () => { fanDragging = true; });
@@ -318,7 +423,9 @@ function init() {
   connectSocket();
   pollSensors();
   pollInfo();
+  pollManagedDevices();
   setInterval(pollSensors, POLL_SENSOR_MS);
   setInterval(pollInfo, POLL_INFO_MS);
+  setInterval(pollManagedDevices, 3000);
 }
 window.addEventListener('DOMContentLoaded', init);
