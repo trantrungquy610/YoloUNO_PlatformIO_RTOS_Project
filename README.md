@@ -8,6 +8,7 @@ Firmware PlatformIO/Arduino cho board YoloUNO (ESP32-S3), chạy các FreeRTOS t
 - Nhận ảnh grayscale 64 × 64 qua HTTP, chạy mô hình TensorFlow Lite Micro và điều khiển RGB LED theo cử chỉ.
 - Publish nhiệt độ, độ ẩm, kết quả Gesture-AI và tốc độ quạt lên MQTT Gateway cục bộ.
 - Nhận RPC `setFanSpeed` để đặt tốc độ quạt từ 0 đến 100%.
+- Cho phép đặt tốc độ quạt 0–100% từ dashboard WebServer cục bộ qua WebSocket.
 - Cung cấp trang thiết lập Wi-Fi trên cổng 80 và dashboard/API cục bộ trên cổng 8080.
 
 ## Cấu trúc chính
@@ -44,6 +45,7 @@ Khi chưa có Wi-Fi đã lưu, thiết bị tạo access point với SSID và m�
 
 - **Cổng 80:** trang chính và thiết lập Wi-Fi (`/settings`); gửi thông tin kết nối qua `/connect` và kiểm tra kết quả tại `/connect-status`.
 - **Cổng 8080:** dashboard từ LittleFS (`/`), `/health`, `/api/sensors`, `/api/info`, WebSocket `/ws` và endpoint Gesture-AI `POST /api/gesture/frame`.
+- Trong mục **Thiết bị**, thanh trượt quạt gửi mức PWM 0–100% tới cùng hàng đợi điều khiển dùng bởi RPC; dashboard đọc lại `fan_speed_percent` từ `/api/info`.
 - `/api/gesture/frame` yêu cầu `Content-Type: application/octet-stream` và đúng 4096 byte grayscale (64 × 64). Trả `202` khi frame được đưa vào hàng đợi; trả lỗi nếu frame không hợp lệ hoặc queue chưa sẵn sàng.
 
 WebServer hiện không có xác thực đầy đủ. Chỉ dùng trên mạng tin cậy, không mở cổng ra Internet. OTA bị tắt mặc định; chỉ bật sau khi đã đánh giá bảo mật và cấu hình xác thực phù hợp.

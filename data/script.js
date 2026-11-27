@@ -15,6 +15,8 @@ const pending = new Map();
 let info = null;
 let relayBusy = false;
 let relayOn = false;
+let fanBusy = false;
+let fanDragging = false;
 
 function setText(id, value) {
   const node = el(id);
@@ -36,6 +38,7 @@ function setSocketStatus(connected) {
     node.dataset.status = connected ? 'online' : 'offline';
   }
   renderRelay();
+  renderFan();
 }
 function connectSocket() {
   if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
@@ -63,7 +66,7 @@ function connectSocket() {
     let data;
     try { data = JSON.parse(event.data); } catch (_error) { return; }
     const requestId = Number(data.request_id);
-    if ((data.page === 'device_result' || data.page === 'setting_saved') && pending.has(requestId)) {
+    if ((data.page === 'device_result' || data.page === 'fan_result' || data.page === 'setting_saved') && pending.has(requestId)) {
       const op = pending.get(requestId);
       pending.delete(requestId);
       clearTimeout(op.timer);
@@ -169,10 +172,12 @@ async function pollInfo() {
     setText('infoRelay', Number.isInteger(info.relay_gpio) && info.relay_gpio >= 0 ? `GPIO ${info.relay_gpio}` : 'Chưa được cấu hình');
     if (!relayBusy) relayOn = info.relay_on === true;
     renderRelay();
+    renderFan();
   } catch (_error) {
     info = null;
     ['infoIp', 'infoWifi', 'infoUptime', 'infoCoreIot', 'infoRelay'].forEach(id => setText(id, 'Không khả dụng'));
     renderRelay();
+    renderFan();
   }
 }
 function renderRelay() {
@@ -223,6 +228,53 @@ async function toggleRelay(gpio) {
     renderRelay();
   }
 }
+function renderFan() {
+  const slider = el('fanSpeedSlider');
+  const output = el('fanSpeedValue');
+  if (!slider || !output) return;
+  const reportedSpeed = info && Number(info.fan_speed_percent);
+  const hasSpeed = Number.isInteger(reportedSpeed) && reportedSpeed >= 0 && reportedSpeed <= 100;
+  slider.disabled = fanBusy || !hasSpeed || !socketReady();
+  if (hasSpeed && !fanBusy && !fanDragging) {
+    slider.value = String(reportedSpeed);
+    output.value = `${reportedSpeed}%`;
+    output.textContent = `${reportedSpeed}%`;
+  }
+  if (!hasSpeed) setText('fanControlStatus', 'Không đọc được trạng thái quạt từ thiết bị.');
+  else if (fanBusy) setText('fanControlStatus', 'Đang chờ thiết bị áp dụng tốc độ…');
+  else if (!socketReady()) setText('fanControlStatus', 'Kết nối WebSocket để điều khiển quạt.');
+  else setText('fanControlStatus', 'Sẵn sàng điều khiển.');
+}
+async function setFanSpeed() {
+  const slider = el('fanSpeedSlider');
+  if (!slider || fanBusy || !socketReady()) return;
+  fanDragging = false;
+  const percent = Number(slider.value);
+  if (!Number.isInteger(percent) || percent < 0 || percent > 100) {
+    renderFan();
+    return;
+  }
+  fanBusy = true;
+  renderFan();
+  try {
+    const result = await requestDevice('fan', { percent }, 'fan_result');
+    if (info) info.fan_speed_percent = result.fan_speed_percent;
+    notify(`Đã đặt tốc độ quạt ${result.fan_speed_percent}%.`, 'ok');
+  } catch (error) {
+    notify(`Chưa đặt được tốc độ quạt: ${error.message}`, 'error');
+  } finally {
+    fanBusy = false;
+    renderFan();
+  }
+}
+function previewFanSpeed() {
+  const slider = el('fanSpeedSlider');
+  const output = el('fanSpeedValue');
+  if (slider && output) {
+    output.value = `${slider.value}%`;
+    output.textContent = `${slider.value}%`;
+  }
+}
 async function submitSettings(event) {
   event.preventDefault();
   const ssid = el('ssid').value.trim();
@@ -254,6 +306,13 @@ async function submitSettings(event) {
 function init() {
   const form = el('settingsForm');
   if (form) form.addEventListener('submit', submitSettings);
+  const fanSlider = el('fanSpeedSlider');
+  if (fanSlider) {
+    fanSlider.addEventListener('pointerdown', () => { fanDragging = true; });
+    fanSlider.addEventListener('pointerup', () => { fanDragging = false; });
+    fanSlider.addEventListener('input', previewFanSpeed);
+    fanSlider.addEventListener('change', setFanSpeed);
+  }
   setGauge('gauge_temp', NaN, -10, 50, '°C');
   setGauge('gauge_humi', NaN, 0, 100, '%');
   connectSocket();

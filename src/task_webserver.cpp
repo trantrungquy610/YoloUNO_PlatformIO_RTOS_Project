@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <math.h>
 #include "task_gesture.h"
+#include "task_fan.h"
 #include <cstring>
 #include <stdlib.h>
 #include <string.h>
@@ -247,6 +248,7 @@ static void startServer()
         doc["core_iot_configured"] = !CORE_IOT_TOKEN.isEmpty() && !CORE_IOT_SERVER.isEmpty();
         doc["relay_gpio"] = webRelayGpio();
         if (webRelayGpio() >= 0) doc["relay_on"] = webRelayState();
+        doc["fan_speed_percent"] = fan_get_speed_percent();
         sendJson(request, doc);
     });
 

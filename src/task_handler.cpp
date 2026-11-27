@@ -1,6 +1,7 @@
 #include "task_handler.h"
 #include "task_webserver.h"
 #include "task_check_info.h"
+#include "task_fan.h"
 
 // Reject known-in-use/reserved pins. GPIO must also be explicitly configured.
 // Board pinout and relay polarity MUST be verified before changing -1.
@@ -75,6 +76,40 @@ void handleWebSocketMessage(AsyncWebSocketClient *client, const String &message)
             response["gpio"] = gpio;
             response["state"] = webRelayState() ? "ON" : "OFF";
             // GPIO level confirmation is NOT physical load feedback.
+        }
+        replyJson(client, response);
+        return;
+    }
+
+    if (page == "fan")
+    {
+        StaticJsonDocument<192> response;
+        response["page"] = "fan_result";
+        response["request_id"] = requestId;
+        const JsonVariantConst percentValue = doc["value"]["percent"];
+        if (!percentValue.is<int>())
+        {
+            response["status"] = "error";
+            response["message"] = "Toc do quat phai la so nguyen tu 0 den 100";
+        }
+        else
+        {
+            const int percent = percentValue.as<int>();
+            if (percent < 0 || percent > 100)
+            {
+                response["status"] = "error";
+                response["message"] = "Toc do quat phai trong khoang 0 den 100";
+            }
+            else if (!fan_set_speed_percent(static_cast<uint8_t>(percent)))
+            {
+                response["status"] = "error";
+                response["message"] = "Hang doi dieu khien quat chua san sang";
+            }
+            else
+            {
+                response["status"] = "ok";
+                response["fan_speed_percent"] = fan_get_speed_percent();
+            }
         }
         replyJson(client, response);
         return;

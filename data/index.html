@@ -57,9 +57,21 @@
     <!-- THIẾT BỊ -->
     <div id="device" class="section" style="display:none;">
       <header>
-        <h1>Điều khiển Relay</h1>
-        <p>Quản lý và điều khiển các relay được kết nối.</p>
+        <h1>Điều khiển thiết bị</h1>
+        <p>Điều chỉnh quạt và quản lý relay đã được cấu hình.</p>
       </header>
+
+      <div class="device-list">
+        <section class="device-card fan-card">
+          <div class="device-icon" aria-hidden="true">🌀</div>
+          <h2>Điều khiển quạt</h2>
+          <label for="fanSpeedSlider">Tốc độ đặt</label>
+          <output id="fanSpeedValue" for="fanSpeedSlider">0%</output>
+          <input id="fanSpeedSlider" class="fan-slider" type="range" min="0" max="100" step="1" value="0" disabled>
+          <p id="fanControlStatus" class="device-caption">Đang đọc trạng thái quạt…</p>
+          <p class="device-caption">Giá trị PWM đã đặt; không phải số đo vòng quay thực tế.</p>
+        </section>
+      </div>
 
       <div class="device-list" id="relayContainer"></div>
 

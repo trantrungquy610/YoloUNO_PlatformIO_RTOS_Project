@@ -110,6 +110,12 @@ body {
   box-shadow: 0 8px 25px rgba(34, 148, 242, 0.25);
 }
 
+.fan-card h2 { color: #135b8e; font-size: 20px; }
+.fan-card label { display: block; margin: 18px 0 4px; color: #5c6a78; }
+.fan-card output { display: block; color: #135b8e; font-size: 30px; font-weight: 700; }
+.fan-slider { width: 100%; margin: 18px 0 8px; accent-color: #2294F2; cursor: pointer; }
+.fan-slider:disabled { cursor: not-allowed; opacity: .55; }
+
 .device-icon {
   font-size    : 36px;
   color        : #2294F2;
